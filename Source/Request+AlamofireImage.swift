@@ -34,61 +34,21 @@ import WatchKit
 import Cocoa
 #endif
 
-public final class ImageResponseSerializer: ResponseSerializer {
-    // MARK: Properties
+public protocol ImageSerializerProtocol {
+    func serializeImage(from data: Data) throws -> Image
+}
+
+public class ImageSerializer: ImageSerializerProtocol {
 
     public static var deviceScreenScale: CGFloat { DataRequest.imageScale }
 
     public let imageScale: CGFloat
     public let inflateResponseImage: Bool
-    public let emptyResponseCodes: Set<Int>
-    public let emptyRequestMethods: Set<HTTPMethod>
 
-    static var acceptableImageContentTypes: Set<String> = ["application/octet-stream",
-                                                           "image/tiff",
-                                                           "image/jpeg",
-                                                           "image/gif",
-                                                           "image/png",
-                                                           "image/ico",
-                                                           "image/x-icon",
-                                                           "image/bmp",
-                                                           "image/x-bmp",
-                                                           "image/x-xbitmap",
-                                                           "image/x-ms-bmp",
-                                                           "image/x-win-bitmap"]
-
-    static let streamImageInitialBytePattern = Data([255, 216]) // 0xffd8
-
-    // MARK: Initialization
-
-    public init(imageScale: CGFloat = ImageResponseSerializer.deviceScreenScale,
-                inflateResponseImage: Bool = true,
-                emptyResponseCodes: Set<Int> = ImageResponseSerializer.defaultEmptyResponseCodes,
-                emptyRequestMethods: Set<HTTPMethod> = ImageResponseSerializer.defaultEmptyRequestMethods) {
+    public init(imageScale: CGFloat = ImageSerializer.deviceScreenScale,
+                inflateResponseImage: Bool = true) {
         self.imageScale = imageScale
         self.inflateResponseImage = inflateResponseImage
-        self.emptyResponseCodes = emptyResponseCodes
-        self.emptyRequestMethods = emptyRequestMethods
-    }
-
-    // MARK: Serialization
-
-    public func serialize(request: URLRequest?, response: HTTPURLResponse?, data: Data?, error: Error?) throws -> Image {
-        guard error == nil else { throw error! }
-
-        guard let data = data, !data.isEmpty else {
-            guard emptyResponseAllowed(forRequest: request, response: response) else {
-                throw AFError.responseSerializationFailed(reason: .inputDataNilOrZeroLength)
-            }
-
-            print("Returning empty image!")
-            return Image()
-        }
-
-        try validateContentType(for: request, response: response)
-        let image = try serializeImage(from: data)
-
-        return image
     }
 
     public func serializeImage(from data: Data) throws -> Image {
@@ -110,6 +70,65 @@ public final class ImageResponseSerializer: ResponseSerializer {
         let image = NSImage(size: NSSize(width: bitmapImage.pixelsWide, height: bitmapImage.pixelsHigh))
         image.addRepresentation(bitmapImage)
         #endif
+
+        return image
+    }
+}
+
+public final class ImageResponseSerializer: ResponseSerializer {
+    // MARK: Properties
+
+    public static var deviceScreenScale: CGFloat { DataRequest.imageScale }
+
+    public let imageSerializer: ImageSerializerProtocol
+    public let emptyResponseCodes: Set<Int>
+    public let emptyRequestMethods: Set<HTTPMethod>
+
+    static var acceptableImageContentTypes: Set<String> = ["application/octet-stream",
+                                                           "image/tiff",
+                                                           "image/jpeg",
+                                                           "image/gif",
+                                                           "image/png",
+                                                           "image/ico",
+                                                           "image/x-icon",
+                                                           "image/bmp",
+                                                           "image/x-bmp",
+                                                           "image/x-xbitmap",
+                                                           "image/x-ms-bmp",
+                                                           "image/x-win-bitmap"]
+
+    // MARK: Initialization
+
+    public init(imageSerializer: ImageSerializerProtocol = ImageSerializer(),
+                emptyResponseCodes: Set<Int> = ImageResponseSerializer.defaultEmptyResponseCodes,
+                emptyRequestMethods: Set<HTTPMethod> = ImageResponseSerializer.defaultEmptyRequestMethods) {
+        self.imageSerializer = imageSerializer
+        self.emptyResponseCodes = emptyResponseCodes
+        self.emptyRequestMethods = emptyRequestMethods
+    }
+
+    public convenience init(imageScale: CGFloat = ImageResponseSerializer.deviceScreenScale,
+                            inflateResponseImage: Bool = true) {
+        let imageSerializer = ImageSerializer(imageScale: imageScale, inflateResponseImage: inflateResponseImage)
+        self.init(imageSerializer: imageSerializer)
+    }
+
+    // MARK: Serialization
+
+    public func serialize(request: URLRequest?, response: HTTPURLResponse?, data: Data?, error: Error?) throws -> Image {
+        guard error == nil else { throw error! }
+
+        guard let data = data, !data.isEmpty else {
+            guard emptyResponseAllowed(forRequest: request, response: response) else {
+                throw AFError.responseSerializationFailed(reason: .inputDataNilOrZeroLength)
+            }
+
+            print("Returning empty image!")
+            return Image()
+        }
+
+        try validateContentType(for: request, response: response)
+        let image = try imageSerializer.serializeImage(from: data)
 
         return image
     }
